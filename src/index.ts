@@ -1,140 +1,72 @@
 #!/usr/bin/env node
 
 /**
- * This is a template MCP server that implements a simple notes system.
- * It demonstrates core MCP concepts like resources and tools by allowing:
- * - Listing notes as resources
- * - Reading individual notes
- * - Creating new notes via a tool
- * - Summarizing all notes via a prompt
+ * 一个MCP服务器，用于提供LTE展会相关的API服务
  */
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
-  ListResourcesRequestSchema,
   ListToolsRequestSchema,
-  ReadResourceRequestSchema,
-  ListPromptsRequestSchema,
-  GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import {
-  fetchLteEvents,
+  fetchAllLteEvents,
   fetchLteEventSpeakers,
-  fetchLteEventsByDate
+  fetchFilteredLteEvents,
+  fetchExhibitors
 } from './api/index.js';
 
 /**
- * Type alias for a note object.
- */
-type Note = { title: string, content: string };
-
-/**
- * Simple in-memory storage for notes.
- * In a real implementation, this would likely be backed by a database.
- */
-const notes: { [id: string]: Note } = {
-  "1": { title: "First Note", content: "This is note 1" },
-  "2": { title: "Second Note", content: "This is note 2" }
-};
-
-/**
- * Create an MCP server with capabilities for resources (to list/read notes),
- * tools (to create new notes), and prompts (to summarize notes).
+ * 创建一个具有工具功能的MCP服务器
  */
 const server = new Server(
-  {
-    name: "teaapp-mcp-api",
-    version: "0.1.0",
-  },
-  {
-    capabilities: {
-      resources: {},
-      tools: {},
-      prompts: {},
+    {
+      name: "teaapp-mcp-api",
+      version: "0.1.0",
     },
-  }
+    {
+      capabilities: {
+        tools: {},
+      },
+    }
 );
 
 /**
- * Handler for listing available notes as resources.
- * Each note is exposed as a resource with:
- * - A note:// URI scheme
- * - Plain text MIME type
- * - Human readable name and description (now including the note title)
- */
-server.setRequestHandler(ListResourcesRequestSchema, async () => {
-  return {
-    resources: Object.entries(notes).map(([id, note]) => ({
-      uri: `note:///${id}`,
-      mimeType: "text/plain",
-      name: note.title,
-      description: `A text note: ${note.title}`
-    }))
-  };
-});
-
-/**
- * Handler for reading the contents of a specific note.
- * Takes a note:// URI and returns the note content as plain text.
- */
-server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-  const url = new URL(request.params.uri);
-  const id = url.pathname.replace(/^\//, '');
-  const note = notes[id];
-
-  if (!note) {
-    throw new Error(`Note ${id} not found`);
-  }
-
-  return {
-    contents: [{
-      uri: request.params.uri,
-      mimeType: "text/plain",
-      text: note.content
-    }]
-  };
-});
-
-/**
- * Handler that lists available tools.
- * Exposes a single "create_note" tool that lets clients create new notes.
+ * 处理工具列表请求
+ * 提供LTE展会查询相关的工具
  */
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
       {
-        name: "create_note",
-        description: "Create a new note",
-        inputSchema: {
-          type: "object",
-          properties: {
-            title: {
-              type: "string",
-              description: "Title of the note"
-            },
-            content: {
-              type: "string",
-              description: "Text content of the note"
-            }
-          },
-          required: ["title", "content"]
-        }
-      },
-      {
         name: "query_lte_events",
-        description: "根据日期查询LTE展会活动信息",
+        description: "Retrieves Learning & Teaching Expo (LTE) 2025 events scheduled for a specific date and filtered by venue location. Returns programme information with: id (unique ID), type, topic_e (topic), language_e (presentation language), abstract_e (abstract), schedule_time, and location_info (containing title_e and location_code).",
         inputSchema: {
           type: "object",
           properties: {
             date: {
               type: "string",
-              description: "展会日期",
-              enum: ["2024-12-11", "2024-12-12", "2024-12-13"]
+              description: "Event date in YYYY-MM-DD format. Only the three official expo dates are supported.",
+              enum: ["2025-07-02", "2025-07-03", "2025-07-04"]
+            },
+            location: {
+              type: "string",
+              description: "Venue filter option: 'main stage' (shows only events located at the main stage), 'theatre' (shows only events located at theatre venues), or 'all' (shows all LTE events regardless of location, including both main stage and theatre events).",
+              enum: ["main stage", "theatre", "all"],
+              default: "all"
             }
           },
           required: ["date"]
+        }
+      },
+      {
+        name: "query_lte_exhibitors",
+        description: "Retrieves all exhibitors participating in the Learning & Teaching Expo (LTE) 2025. Returns an array of exhibitor information with: id (unique ID), type, name_e (name), description_e (description), and abstract_e (abstract).",
+        inputSchema: {
+          type: "object",
+          properties: {},
+          required: []
         }
       }
     ]
@@ -142,40 +74,25 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 });
 
 /**
- * Handler for the create_note tool.
- * Creates a new note with the provided title and content, and returns success message.
+ * 处理工具调用请求
+ * 实现LTE展会查询功能
  */
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   switch (request.params.name) {
-    case "create_note": {
-      const title = String(request.params.arguments?.title);
-      const content = String(request.params.arguments?.content);
-      if (!title || !content) {
-        throw new Error("Title and content are required");
-      }
-
-      const id = String(Object.keys(notes).length + 1);
-      notes[id] = { title, content };
-
-      return {
-        content: [{
-          type: "text",
-          text: `Created note ${id}: ${title}`
-        }]
-      };
-    }
-
     case "query_lte_events": {
       const date = request.params.arguments?.date;
+      const location = request.params.arguments?.location || "all";
+
       if (!date) {
-        throw new Error("必须提供日期");
+        throw new Error("Date parameter is required");
       }
 
-      // 转换为API需要的格式
+      // Convert to API required format
       const fullDate = `${date}T00:00:00.000Z`;
 
       try {
-        const events = await fetchLteEventsByDate(fullDate);
+        // Pass both date and location parameters
+        const events = await fetchFilteredLteEvents(fullDate, location as "main stage" | "theatre" | "all");
         return {
           content: [{
             type: "text",
@@ -183,7 +100,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }]
         };
       } catch (error: any) {
-        throw new Error(`获取LTE展会信息失败: ${error?.message || '未知错误'}`);
+        throw new Error(`Failed to fetch LTE events: ${error?.message || 'Unknown error'}`);
+      }
+    }
+
+    case "query_lte_exhibitors": {
+      try {
+        const exhibitors = await fetchExhibitors();
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify(exhibitors, null, 2)
+          }]
+        };
+      } catch (error: any) {
+        throw new Error(`Failed to fetch LTE exhibitors: ${error?.message || 'Unknown error'}`);
       }
     }
 
@@ -193,65 +124,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 
 /**
- * Handler that lists available prompts.
- * Exposes a single "summarize_notes" prompt that summarizes all notes.
- */
-server.setRequestHandler(ListPromptsRequestSchema, async () => {
-  return {
-    prompts: [
-      {
-        name: "summarize_notes",
-        description: "Summarize all notes",
-      }
-    ]
-  };
-});
-
-/**
- * Handler for the summarize_notes prompt.
- * Returns a prompt that requests summarization of all notes, with the notes' contents embedded as resources.
- */
-server.setRequestHandler(GetPromptRequestSchema, async (request) => {
-  if (request.params.name !== "summarize_notes") {
-    throw new Error("Unknown prompt");
-  }
-
-  const embeddedNotes = Object.entries(notes).map(([id, note]) => ({
-    type: "resource" as const,
-    resource: {
-      uri: `note:///${id}`,
-      mimeType: "text/plain",
-      text: note.content
-    }
-  }));
-
-  return {
-    messages: [
-      {
-        role: "user",
-        content: {
-          type: "text",
-          text: "Please summarize the following notes:"
-        }
-      },
-      ...embeddedNotes.map(note => ({
-        role: "user" as const,
-        content: note
-      })),
-      {
-        role: "user",
-        content: {
-          type: "text",
-          text: "Provide a concise summary of all the notes above."
-        }
-      }
-    ]
-  };
-});
-
-/**
- * Start the server using stdio transport.
- * This allows the server to communicate via standard input/output streams.
+ * 启动服务器，使用标准输入/输出流进行通信
  */
 async function main() {
   const transport = new StdioServerTransport();
@@ -259,6 +132,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error("Server error:", error);
+  console.error("服务器错误:", error);
   process.exit(1);
 });

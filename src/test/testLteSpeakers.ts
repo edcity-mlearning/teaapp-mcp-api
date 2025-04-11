@@ -1,4 +1,4 @@
-import { fetchLteEvents, fetchLteEventSpeakers } from '../api/index.js';
+import { fetchAllLteEvents, fetchLteEventSpeakers } from '../api/index.js';
 
 async function testFetchLteEventSpeakers() {
     console.log('开始测试 fetchLteEventSpeakers...');
@@ -6,7 +6,7 @@ async function testFetchLteEventSpeakers() {
     try {
         // 先获取一个有效的event_id
         console.log('1. 先获取LTE展会列表，找到一个有效的event_id...');
-        const events = await fetchLteEvents(2024, 0, 0, 1);
+        const events = await fetchAllLteEvents(2024, 0, 0, 1);
 
         if (!events || events.length === 0) {
             console.error('没有找到任何展会事件。无法测试演讲者API。');

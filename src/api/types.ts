@@ -38,3 +38,27 @@ export type LteEvent = {
     abstract_e: string;
     speakers: LteEventSpeaker[];
 }
+
+// 需要添加到 types.js 文件中
+export interface ProgrammeLocationInfo {
+    title_e: string;
+    location_code: string;
+}
+
+export interface Programme {
+    id: number;
+    type: string;
+    topic_e: string;
+    language_e: string;
+    abstract_e: string;
+    schedule_time: string;
+    location_info: ProgrammeLocationInfo;
+}
+
+export interface Exhibitor {
+    id: number;
+    type: string;
+    description_e: string;
+    abstract_e: string;
+    name_e: string;
+}

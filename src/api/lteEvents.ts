@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { LteEvent, LteEventSpeaker, SimpleLteEvent } from './types.js';
+import {Exhibitor, LteEvent, LteEventSpeaker, Programme, SimpleLteEvent} from './types.js';
 
 // API基础URL
 const API_BASE_URL = 'https://edcity-teacher-api-uat.edcity.hk/graphql';
@@ -14,7 +14,7 @@ const API_BASE_URL = 'https://edcity-teacher-api-uat.edcity.hk/graphql';
  * @param location 可选的地点筛选
  * @returns 展会事件数组
  */
-export async function fetchLteEvents(
+export async function fetchAllLteEvents(
     year: number,
     id = 0,
     skip = 0,
@@ -151,43 +151,104 @@ export async function fetchLteEventSpeakers(
 }
 
 /**
- * 根据日期获取LTE展会信息（简化版）
+ * 根据日期和场地获取LTE展会信息
  *
  * @param scheduleDate 展会日期
- * @returns 简化的展会事件数组
+ * @param location 场地选项: "main stage" | "theatre" | "all"
+ * @returns 展会节目数组
  */
-export async function fetchLteEventsByDate(
-    scheduleDate: string
-): Promise<SimpleLteEvent[]> {
-    // 验证日期是否是允许的选项之一
+export async function fetchFilteredLteEvents(
+    scheduleDate: string,
+    location: "main stage" | "theatre" | "all" = "all"
+): Promise<Programme[]> {
+    // Validation and query code remains the same
     const validDates = [
-        "2024-12-11T00:00:00.000Z",
-        "2024-12-12T00:00:00.000Z",
-        "2024-12-13T00:00:00.000Z"
+        "2025-07-02T00:00:00.000Z",
+        "2025-07-03T00:00:00.000Z",
+        "2025-07-04T00:00:00.000Z"
     ];
 
     if (!validDates.includes(scheduleDate)) {
         throw new Error(`无效的日期。请选择以下日期之一: ${validDates.join(', ')}`);
     }
 
+    let query = '';
+
+    if (location === "main stage") {
+        query = `
+        query MyQuery {
+          programmes(date: "${scheduleDate}", location_code: "X00") {
+            event_id
+            topic_e
+            language_e
+            abstract_e
+            schedule_time
+            location_info {
+              title_e
+              location_code
+            }
+          }
+        }
+        `;
+    } else {
+        query = `
+        query MyQuery {
+          programmes(date: "${scheduleDate}") {
+            event_id
+            topic_e
+            language_e
+            abstract_e
+            schedule_time
+            location_info {
+              title_e
+              location_code
+            }
+          }
+        }
+        `;
+    }
+
+    const response = await axios.post(API_BASE_URL, { query });
+
+    if (response.data.errors) {
+        throw new Error(response.data.errors[0].message);
+    }
+
+    let programmes = response.data.data.programmes;
+
+    if (location === "theatre") {
+        programmes = programmes.filter((programme: { location_info: { location_code: string; }; }) =>
+            programme.location_info.location_code !== "X00"
+        );
+    }
+
+    // Transform the data: rename event_id to id and add type field
+    return programmes.map((programme: any) => {
+        const { event_id, ...rest } = programme;
+        return {
+            id: event_id,
+            type: "lte_event",
+            ...rest
+        };
+    });
+}
+
+/**
+ * 获取所有展示商信息
+ *
+ * @returns 展示商数组
+ */
+export async function fetchExhibitors(): Promise<Exhibitor[]> {
     const query = `
-    query LteEvents {
-      LteEvents(
-        id: 0
-        skip: 0
-        Year: 2024
-        take: 50
-        schedule_date: "${scheduleDate}"
-      ) {
-        schedule_time
-        schedule_date
-        schedule_ref
-        language_c
-        topic_c
-        topic_e
+    query MyQuery {
+      exhibitors {
+        exhibitor_id
+        description_e
+        abstract_e
+        name_e
       }
     }
-    `;
+  `;
 
     // 发送GraphQL请求
     const response = await axios.post(API_BASE_URL, { query });
@@ -196,5 +257,62 @@ export async function fetchLteEventsByDate(
         throw new Error(response.data.errors[0].message);
     }
 
-    return response.data.data.LteEvents;
+    // Transform the data: rename exhibitor_id to id and add type field
+    return response.data.data.exhibitors.map((exhibitor: any) => {
+        const { exhibitor_id, ...rest } = exhibitor;
+        return {
+            id: exhibitor_id,
+            type: "lte_exhibitor",
+            ...rest
+        };
+    });
 }
+
+// /**
+//  * 根据日期获取LTE展会信息（简化版）
+//  *
+//  * @param scheduleDate 展会日期
+//  * @returns 简化的展会事件数组
+//  */
+// export async function fetchLteEventsByDate(
+//     scheduleDate: string
+// ): Promise<SimpleLteEvent[]> {
+//     // 验证日期是否是允许的选项之一
+//     const validDates = [
+//         "2025-07-02T00:00:00.000Z",
+//         "2025-07-03T00:00:00.000Z",
+//         "2025-07-04T00:00:00.000Z"
+//     ];
+//
+//     if (!validDates.includes(scheduleDate)) {
+//         throw new Error(`无效的日期。请选择以下日期之一: ${validDates.join(', ')}`);
+//     }
+//
+//     const query = `
+//     query LteEvents {
+//       LteEvents(
+//         id: 0
+//         skip: 0
+//         Year: 2025
+//         take: 50
+//         schedule_date: "${scheduleDate}"
+//       ) {
+//         schedule_time
+//         schedule_date
+//         schedule_ref
+//         language_c
+//         topic_c
+//         topic_e
+//       }
+//     }
+//     `;
+//
+//     // 发送GraphQL请求
+//     const response = await axios.post(API_BASE_URL, { query });
+//
+//     if (response.data.errors) {
+//         throw new Error(response.data.errors[0].message);
+//     }
+//
+//     return response.data.data.LteEvents;
+// }
