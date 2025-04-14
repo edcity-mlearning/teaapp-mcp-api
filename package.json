@@ -19,7 +19,7 @@
     "test:speakers": "tsc && node build/test/testLteSpeakers.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.7.0",
+    "@modelcontextprotocol/sdk": "^1.9.0",
     "axios": "^1.8.3",
     "dotenv": "^16.4.7"
   },

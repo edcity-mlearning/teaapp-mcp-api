@@ -155,13 +155,15 @@ export async function fetchLteEventSpeakers(
  *
  * @param scheduleDate 展会日期
  * @param location 场地选项: "main stage" | "theatre" | "all"
+ * @param token 可选的API授权令牌，用于过滤用户已选择的事件
  * @returns 展会节目数组
  */
 export async function fetchFilteredLteEvents(
     scheduleDate: string,
-    location: "main stage" | "theatre" | "all" = "all"
+    location: "main stage" | "theatre" | "all" = "all",
+    token?: string
 ): Promise<Programme[]> {
-    // Validation and query code remains the same
+    // 验证日期
     const validDates = [
         "2025-07-02T00:00:00.000Z",
         "2025-07-03T00:00:00.000Z",
@@ -222,7 +224,36 @@ export async function fetchFilteredLteEvents(
         );
     }
 
-    // Transform the data: rename event_id to id and add type field
+    // 如果提供了token，根据location过滤掉用户已选择的事件
+    if (token) {
+        try {
+            let excludeIds: number[] = [];
+
+            if (location === "main stage") {
+                // 主舞台视图排除用户已选择的主舞台事件
+                excludeIds = await getUserPresetList("mainStageEvent", token);
+            } else if (location === "theatre") {
+                // 剧场视图排除用户已选择的其他事件
+                excludeIds = await getUserPresetList("otherEvent", token);
+            } else if (location === "all") {
+                // 全部视图需要排除所有用户已选择的事件
+                const mainStageIds = await getUserPresetList("mainStageEvent", token);
+                const otherIds = await getUserPresetList("otherEvent", token);
+                excludeIds = [...mainStageIds, ...otherIds];
+            }
+
+            if (excludeIds.length > 0) {
+                programmes = programmes.filter((programme: any) =>
+                    !excludeIds.includes(Number(programme.event_id))
+                );
+            }
+        } catch (error) {
+            console.error("获取用户预选列表失败，返回未过滤的结果", error);
+            // 出错时不过滤，继续使用原始结果
+        }
+    }
+
+    // 转换数据结构：将 event_id 重命名为 id 并添加 type 字段
     return programmes.map((programme: any) => {
         const { event_id, ...rest } = programme;
         return {
@@ -236,9 +267,10 @@ export async function fetchFilteredLteEvents(
 /**
  * 获取所有展示商信息
  *
+ * @param token 可选的API授权令牌，用于过滤用户已选择的展示商
  * @returns 展示商数组
  */
-export async function fetchExhibitors(): Promise<Exhibitor[]> {
+export async function fetchExhibitors(token?: string): Promise<Exhibitor[]> {
     const query = `
     query MyQuery {
       exhibitors {
@@ -257,8 +289,28 @@ export async function fetchExhibitors(): Promise<Exhibitor[]> {
         throw new Error(response.data.errors[0].message);
     }
 
-    // Transform the data: rename exhibitor_id to id and add type field
-    return response.data.data.exhibitors.map((exhibitor: any) => {
+    let exhibitors = response.data.data.exhibitors;
+
+    // 如果提供了token，过滤掉用户已选择的展示商
+    if (token) {
+        try {
+            // 获取用户已选择的展示商ID列表
+            const excludeIds = await getUserPresetList("exhibitor", token);
+
+            if (excludeIds.length > 0) {
+                // 过滤掉已选择的展示商
+                exhibitors = exhibitors.filter((exhibitor: any) =>
+                    !excludeIds.includes(Number(exhibitor.exhibitor_id))
+                );
+            }
+        } catch (error) {
+            console.error("获取用户预选列表失败，返回未过滤的结果", error);
+            // 出错时不过滤，继续使用原始结果
+        }
+    }
+
+    // 转换数据结构：将 exhibitor_id 重命名为 id 并添加 type 字段
+    return exhibitors.map((exhibitor: any) => {
         const { exhibitor_id, ...rest } = exhibitor;
         return {
             id: exhibitor_id,
@@ -266,6 +318,62 @@ export async function fetchExhibitors(): Promise<Exhibitor[]> {
             ...rest
         };
     });
+}
+
+/**
+ * 获取用户已选择的展会事件或展示商列表
+ *
+ * @param type 要获取的列表类型：exhibitor(展示商)、mainStageEvent(主舞台事件)或otherEvent(其他事件)
+ * @param token 授权令牌
+ * @returns 对应类型的ID数组
+ */
+export async function getUserPresetList(
+    type: "exhibitor" | "mainStageEvent" | "otherEvent",
+    token: string
+): Promise<number[]> {
+    const query = `
+    query MyQuery {
+      userPresetList {
+        recommendation {
+          exhibitorIds
+          mainStageEventIds
+          otherEventIds
+        }
+        success
+        message
+      }
+    }
+  `;
+
+    // 发送带有授权头的GraphQL请求
+    const response = await axios.post(API_BASE_URL, { query }, {
+        headers: {
+            "Authorization": `Bearer ${token}`
+        }
+    });
+
+    if (response.data.errors) {
+        throw new Error(response.data.errors[0].message);
+    }
+
+    const result = response.data.data.userPresetList;
+    if (!result.success) {
+        throw new Error(result.message || "获取预设列表失败");
+    }
+
+    // 根据请求的类型返回相应的ID列表
+    const recommendation = result.recommendation;
+
+    switch (type) {
+        case "exhibitor":
+            return recommendation.exhibitorIds;
+        case "mainStageEvent":
+            return recommendation.mainStageEventIds;
+        case "otherEvent":
+            return recommendation.otherEventIds;
+        default:
+            throw new Error(`无效的类型: ${type}`);
+    }
 }
 
 // /**

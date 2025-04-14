@@ -78,6 +78,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
  * 实现LTE展会查询功能
  */
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  // Extract token from request metadata if available
+  let token: string | undefined;
+  if (request.params._meta && request.params._meta.token !== undefined) {
+    token = String(request.params._meta.token);
+  }
+
   switch (request.params.name) {
     case "query_lte_events": {
       const date = request.params.arguments?.date;
@@ -91,8 +97,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const fullDate = `${date}T00:00:00.000Z`;
 
       try {
-        // Pass both date and location parameters
-        const events = await fetchFilteredLteEvents(fullDate, location as "main stage" | "theatre" | "all");
+        // Pass date, location and token (now properly typed)
+        const events = await fetchFilteredLteEvents(
+            fullDate,
+            location as "main stage" | "theatre" | "all",
+            token
+        );
         return {
           content: [{
             type: "text",
@@ -106,7 +116,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     case "query_lte_exhibitors": {
       try {
-        const exhibitors = await fetchExhibitors();
+        // Pass token (now properly typed)
+        const exhibitors = await fetchExhibitors(token);
         return {
           content: [{
             type: "text",
