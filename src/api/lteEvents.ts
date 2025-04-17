@@ -277,7 +277,6 @@ export async function fetchExhibitors(token?: string): Promise<Exhibitor[]> {
         exhibitor_id
         description_e
         abstract_e
-        name_e
       }
     }
   `;
